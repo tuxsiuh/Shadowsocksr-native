@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #==========================================================
-#   System Request: Debian 7+ / Ubuntu 14.04+ / Centos 6+
+#   System Request: Debian 7+ / Ubuntu 14.04+ / Centos 7+
 #   Author: ssrlive
 #   Dscription: ShadowsocksR over TLS onekey
 #   Version: 1.0.0
@@ -36,6 +36,16 @@ export web_svr_local_ip_addr=""
 export web_svr_listen_port="443"
 export web_svr_reverse_proxy_host="127.0.0.1"
 export web_svr_reverse_proxy_port=10000
+
+function get_char() {
+    SAVEDSTTY=`stty -g`
+    stty -echo
+    stty cbreak
+    dd if=/dev/tty bs=1 count=1 2> /dev/null
+    stty -raw
+    stty echo
+    stty $SAVEDSTTY
+}
 
 function random_string_gen() {
     local PASS=""
@@ -111,6 +121,18 @@ EOF
     fi
 }
 
+function over_write_resolve_file() {
+    echo "脚本将完全重写 /etc/resolv.conf 文件, 参考网站 https://nat64.xyz/ , 请按任意键继续, 或者 Ctrl+C 退出安装脚本"
+    echo "Script will over write your /etc/resolv.conf file, see https://nat64.xyz/ "
+    echo "Press any key to start...or Press Ctrl+C to quit"
+    char=`get_char`
+    cat > /etc/resolv.conf <<EOF
+nameserver 2a09:11c0:f1:bbf0::70
+nameserver 2001:67c:2b0::4
+nameserver 2001:67c:2b0::6
+EOF
+}
+
 function judge() {
     if [[ $? -eq 0 ]]; then
         echo -e "${OK} ${GreenBG} $1 Completed ${Font}"
@@ -183,6 +205,7 @@ function domain_check() {
         [yY][eE][sS]|[yY])
             echo -e "${GreenBG} Continue to install ${Font}" 
             sleep 2
+            web_svr_local_ip_addr=${web_svr_domain}
             ;;
         *)
             echo -e "${RedBG} Installation terminated ${Font}" 
@@ -313,6 +336,7 @@ EOF
     fi
 
     systemctl stop ${cron_name}
+    sleep 2
     rm -rf tmp_info
     crontab -l > tmp_info
     echo "0 0 1 * * ${site_cert_dir}/renew_cert.sh >/dev/null 2>&1" >> tmp_info && crontab tmp_info && rm -rf tmp_info
@@ -354,11 +378,13 @@ function nginx_web_server_config_end() {
         index index.html index.htm index.nginx-debian.html;
         root  ${site_dir};
 
-        location /.well-known/acme-challenge/ {
-        }
-        
-        location / {
-            # rewrite ^/(.*)$ https://${web_svr_domain}:${web_svr_listen_port}/$1 permanent;
+        location /${reverse_proxy_location}/ {
+            proxy_redirect off;
+            proxy_pass http://${web_svr_reverse_proxy_host}:${web_svr_reverse_proxy_port};
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host \$http_host;
         }
     }
 
@@ -416,6 +442,9 @@ function web_camouflage(){
 function main() {
     is_root
     check_system
+
+    over_write_resolve_file
+
     dependency_install
     web_svr_reverse_proxy_port=`random_listen_port`
     domain_check

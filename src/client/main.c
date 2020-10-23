@@ -32,9 +32,18 @@
 #include "ssr_cipher_names.h"
 #include "daemon_wrapper.h"
 #include "ssrbuffer.h"
+#include "exe_file_path.h"
 
 #if HAVE_UNISTD_H
 #include <unistd.h>  /* getopt */
+#endif
+
+#ifdef ANDROID
+int log_tx_rx  = 0;
+uint64_t tx    = 0;
+uint64_t rx    = 0;
+uint64_t last  = 0;
+char *prefix = NULL;
 #endif
 
 static void usage(void);
@@ -45,6 +54,13 @@ void state_set_force_quit(struct ssr_client_state *state, bool force_quit);
 void print_remote_info(const struct server_config *config);
 static bool verify_config(struct server_config *config);
 
+#if defined(__unix__) || defined(__linux__)
+#include <signal.h>
+void sighandler(int sig) {
+    pr_err("signal %d", sig);
+}
+#endif // defined(__unix__) || defined(__linux__)
+
 void fn_onexit(void) {
     MEM_CHECK_DUMP_LEAKS();
 }
@@ -54,6 +70,11 @@ struct cmd_line_info *cmds = NULL;
 int main(int argc, char **argv) {
     struct server_config *config = NULL;
     int err = -1;
+
+    #if (defined(__unix__) || defined(__linux__)) && !defined(__mips)
+    struct sigaction sa = { {&sighandler}, {{0}}, 0, NULL };
+    sigaction(SIGPIPE, &sa, NULL);
+    #endif // defined(__unix__) || defined(__linux__)
 
     MEM_CHECK_BEGIN();
     MEM_CHECK_BREAK_ALLOC(63);
@@ -77,9 +98,18 @@ int main(int argc, char **argv) {
             string_safe_assign(&cmds->cfg_file, DEFAULT_CONF_PATH);
         }
 
-        config = config_create();
-        if (parse_config_file(false, cmds->cfg_file, config) == false) {
-            break;
+        if ((config = parse_config_file(false, cmds->cfg_file)) == NULL) {
+            char* separ = NULL;
+            char* cfg_file = exe_file_path(&malloc);
+            if (cfg_file && ((separ = strrchr(cfg_file, PATH_SEPARATOR)))) {
+                ++separ;
+                strcpy(separ, CFG_JSON);
+                config = parse_config_file(false, cfg_file);
+            }
+            free(cfg_file);
+            if (config == NULL) {
+                break;
+            }
         }
 
         if (verify_config(config) == false) {
@@ -97,6 +127,11 @@ int main(int argc, char **argv) {
             sprintf(param, "-c \"%s\"", cmds->cfg_file);
             daemon_wrapper(argv[0], param);
         }
+
+#ifdef ANDROID
+        log_tx_rx  = cmds->log_tx_rx;
+        prefix = cmds->prefix;
+#endif
 
         print_remote_info(config);
 
@@ -122,6 +157,7 @@ int main(int argc, char **argv) {
 void print_remote_info(const struct server_config *config) {
     char remote_host[256] = { 0 };
     char password[256] = { 0 };
+    union sockaddr_universal remote_addr = { { 0 } };
 
     strcpy(remote_host, config->remote_host);
     if (strlen(remote_host) > 4) {
@@ -139,8 +175,14 @@ void print_remote_info(const struct server_config *config) {
         }
     }
 
+    universal_address_from_string_no_dns(config->remote_host, config->remote_port, &remote_addr);
+
     pr_info("ShadowsocksR native client\n");
-    pr_info("remote server    %s:%hu", remote_host, config->remote_port);
+    if (remote_addr.addr6.sin6_family == AF_INET6) {
+        pr_info("remote server    [%s]:%hu", remote_host, config->remote_port);
+    } else {
+        pr_info("remote server    %s:%hu", remote_host, config->remote_port);
+    }
     pr_info("method           %s", config->method);
     pr_info("password         %s", password);
     pr_info("protocol         %s", config->protocol);
@@ -189,7 +231,7 @@ static bool verify_config(struct server_config *config) {
 }
 
 static void usage(void) {
-    printf(""
+    printf("\n"
         "ShadowsocksR native client\n"
         "\n"
         "Usage:\n"
@@ -202,6 +244,6 @@ static void usage(void) {
         "  -c <config file>       Configure file path. Default: " DEFAULT_CONF_PATH "\n"
         "  -f                     Force quit the program.\n"
         "  -h                     Show this help message.\n"
-        "",
+        "\n",
         get_app_name());
 }

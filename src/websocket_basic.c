@@ -200,6 +200,17 @@ char * websocket_generate_sec_websocket_accept(const char *sec_websocket_key, vo
     return b64_str;
 }
 
+const char* ws_close_reason_string(enum ws_close_reason reason) {
+#define WS_CLOSE_REASON_GEN(_, name, msg) case (name): return msg;
+    switch (reason) {
+    WS_CLOSE_REASON_MAP(WS_CLOSE_REASON_GEN)
+    default:; /* Silence WS_CLOSE_REASON_MAX -Wswitch warning. */
+    }
+#undef WS_CLOSE_REASON_GEN
+    return "Error! Unknown reason";
+}
+
+
 #define WEBSOCKET_REQUEST_FORMAT0                                               \
     "GET %s HTTP/1.1\r\n"                                                       \
     "Host: %s:%d\r\n"                                                           \
@@ -287,7 +298,7 @@ uint8_t * websocket_build_frame(ws_frame_info *info, const uint8_t *payload, siz
     } else if(payload_len > 125 && payload_len <= 0xffff) {
         payload_len_small = 126;
         len_size = sizeof(uint16_t);
-    } else if(payload_len > 0xffff && payload_len <= 0xffffffffffffffffLL) {
+    } else if(payload_len > 0xffff && payload_len <= (size_t)0xffffffffffffffffLL) {
         payload_len_small = 127;
         len_size = sizeof(uint64_t);
     } else {
@@ -484,7 +495,7 @@ size_t websocket_frame_size(bool masking, size_t payload_len) {
         len_size = 0;
     } else if(payload_len > 125 && payload_len <= 0xffff) {
         len_size = sizeof(uint16_t);
-    } else if(payload_len > 0xffff && payload_len <= 0xffffffffffffffffLL) {
+    } else if(payload_len > 0xffff && payload_len <= (size_t)0xffffffffffffffffLL) {
         len_size = sizeof(uint64_t);
     } else {
         assert(0);
@@ -553,4 +564,52 @@ uint64_t ws_ntoh64(uint64_t n) {
 uint64_t ws_hton64(uint64_t n) {
     _ws_hton(&n, sizeof(n));
     return n;
+}
+
+#define NORNAL_RESPONSE                     \
+    "HTTP/1.0 200 OK\r\n"                   \
+    "Content-Type: text/html\r\n"           \
+    "Content-Length: %d\r\n"                \
+    "\r\n"
+
+#define NORNAL_CONTENT                          \
+    "<!DOCTYPE html>\r\n"                       \
+    "<html>\r\n"                                \
+    "<head>\r\n"                                \
+    "   <title>Welcome to %s!</title>\r\n"      \
+    "</head>\r\n"                               \
+    "<body>\r\n"                                \
+    "<h1>Welcome to %s!</h1>\r\n"               \
+    "   Hello world!\r\n"                       \
+    "</body>\r\n"                               \
+    "</html>\r\n"
+
+char* ws_normal_response(void* (*allocator)(size_t), const char* domain) {
+    char* res = NULL;
+    char* content = NULL;
+    size_t s = 0;
+    if (allocator == NULL || domain==NULL) {
+        return NULL;
+    }
+
+    s = strlen(NORNAL_CONTENT) + strlen(domain) * 2 + 4;
+    content = (char*)calloc(s, sizeof(*content));
+    if (content == NULL) {
+        return NULL;
+    }
+    sprintf(content, NORNAL_CONTENT, domain, domain);
+
+    s = strlen(NORNAL_RESPONSE) + strlen(content) + 10;
+    res = (char*)allocator(s);
+    if (res == NULL) {
+        free(content);
+        return NULL;
+    }
+    memset(res, 0, s);
+
+    sprintf(res, NORNAL_RESPONSE, (int)strlen(content));
+    strcat(res, content);
+    free(content);
+
+    return res;
 }

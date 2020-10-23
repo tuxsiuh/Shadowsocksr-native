@@ -88,9 +88,11 @@ bool json_iter_extract_bool(const char *key, const struct json_object_iter *iter
     return result;
 }
 
-bool parse_config_file(bool is_server, const char *file, struct server_config *config) {
+struct server_config* parse_config_file(bool is_server, const char* file)
+{
     bool result = false;
     json_object *jso = NULL;
+    struct server_config* config = config_create();
     do {
         struct json_object_iter iter = { NULL };
 
@@ -222,6 +224,7 @@ bool parse_config_file(bool is_server, const char *file, struct server_config *c
                 struct json_object_iter iter2 = { NULL };
                 json_object_object_foreachC(obj_obj, iter2) {
                     const char *obj_str2 = NULL;
+                    obj_bool = false;
 
                     if (json_iter_extract_bool("enable", &iter2, &obj_bool)) {
                         config->over_tls_enable = obj_bool;
@@ -248,5 +251,9 @@ bool parse_config_file(bool is_server, const char *file, struct server_config *c
     if (jso) {
         json_object_put(jso);
     }
-    return result;
+    if (result == false) {
+        config_release(config);
+        config = NULL;
+    }
+    return config;
 }

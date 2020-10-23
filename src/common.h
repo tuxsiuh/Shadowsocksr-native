@@ -22,10 +22,18 @@
 #ifndef _COMMON_H
 #define _COMMON_H
 
-#if defined(WIN32)
-#define DEFAULT_CONF_PATH "config.json"
+#if defined(_WIN32)
+#define PATH_SEPARATOR '\\'
 #else
-#define DEFAULT_CONF_PATH "/etc/ssr-native/config.json"
+#define PATH_SEPARATOR '/'
+#endif
+
+#define CFG_JSON "config.json"
+
+#if defined(WIN32)
+#define DEFAULT_CONF_PATH CFG_JSON
+#else
+#define DEFAULT_CONF_PATH "/etc/ssr-native/" CFG_JSON
 #endif // defined(WIN32)
 
 #ifndef SOL_TCP
@@ -79,6 +87,13 @@ struct server_env_t {
 #ifdef ANDROID
 int protect_socket(int fd);
 int send_traffic_stat(uint64_t tx, uint64_t rx);
+
+extern int log_tx_rx;
+extern uint64_t tx;
+extern uint64_t rx;
+extern uint64_t last;
+extern char *prefix;
+
 #endif
 
 /* ASSERT() is for debug checks, VERIFY() for run-time sanity checks.

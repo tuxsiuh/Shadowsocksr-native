@@ -69,6 +69,7 @@
 #include "ssr_executive.h"
 #include "dump_info.h"
 #include "s5.h"
+#include "ref_count_def.h"
 
 #ifdef MODULE_REMOTE
 #define MAX_UDP_CONN_NUM 512
@@ -111,8 +112,11 @@ struct udp_remote_ctx_t {
     udp_remote_dying_callback dying_cb;
     void *dying_p;
     bool shutting_down;
-    int ref_count;
+    REF_COUNT_MEMBER;
 };
+
+static REF_COUNT_ADD_REF_DECL(udp_remote_ctx_t); // udp_remote_ctx_t_add_ref
+static REF_COUNT_RELEASE_DECL(udp_remote_ctx_t); // udp_remote_ctx_t_release
 
 static void udp_remote_recv_cb(uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf0, const struct sockaddr* addr, unsigned flags);
 static void udp_remote_timeout_cb(uv_timer_t* handle);
@@ -153,7 +157,7 @@ int udp_create_remote_socket(bool ipv6, uv_loop_t *loop, uv_udp_t *udp) {
     }
     err = uv_udp_bind(udp, &addr.addr, 0);
     if (err != 0) {
-        LOGE("[udp] udp_create_remote_socket: %s\n", uv_strerror(err));
+        LOGE("[UDP] udp_create_remote_socket: %s\n", uv_strerror(err));
     }
     return err;
 }
@@ -161,21 +165,15 @@ int udp_create_remote_socket(bool ipv6, uv_loop_t *loop, uv_udp_t *udp) {
 static int
 udp_create_local_listener(const char *host, uint16_t port, uv_loop_t *loop, uv_udp_t *udp)
 {
-    struct addrinfo hints = { 0 };
     struct addrinfo *result = NULL, *rp, *ipv4v6bindall;
     int s, server_sock = 0;
     char str_port[32] = { 0 };
 
-    hints.ai_family   = AF_UNSPEC;               /* Return IPv4 and IPv6 choices */
-    hints.ai_socktype = SOCK_DGRAM;              /* We want a UDP socket */
-    hints.ai_flags    = AI_PASSIVE | AI_ADDRCONFIG; /* For wildcard IP address */
-    hints.ai_protocol = IPPROTO_UDP;
-
     sprintf(str_port, "%d", port);
 
-    s = getaddrinfo(host, str_port, &hints, &result);
+    s = getaddrinfo(host, str_port, NULL, &result);
     if (s != 0) {
-        LOGE("[udp] getaddrinfo: %s", gai_strerror(s));
+        LOGE("[UDP] getaddrinfo: %s", gai_strerror(s));
         return -1;
     }
 
@@ -207,11 +205,11 @@ udp_create_local_listener(const char *host, uint16_t port, uv_loop_t *loop, uv_u
         if (r == 0) {
             break;
         }
-        LOGE("[udp] udp_create_local_listener: %s\n", uv_strerror(r));
+        LOGE("[UDP] udp_create_local_listener: %s\n", uv_strerror(r));
     }
 
     if (rp == NULL) {
-        LOGE("%s", "[udp] cannot bind");
+        LOGE("%s", "[UDP] cannot bind");
         return -1;
     }
 
@@ -220,24 +218,18 @@ udp_create_local_listener(const char *host, uint16_t port, uv_loop_t *loop, uv_u
     return server_sock;
 }
 
-static void udp_remote_ctx_add_ref(struct udp_remote_ctx_t *ctx) {
-    if (ctx) {
-        ++ctx->ref_count;
-    }
+
+static void udp_remote_ctx_free_internal(struct udp_remote_ctx_t *ctx) {
+    free(ctx);
 }
 
-static void udp_remote_ctx_release(struct udp_remote_ctx_t *ctx) {
-    if (ctx) {
-        --ctx->ref_count;
-        if (ctx->ref_count <= 0) {
-            free(ctx);
-        }
-    }
-}
+static REF_COUNT_ADD_REF_IMPL(udp_remote_ctx_t)
+
+static REF_COUNT_RELEASE_IMPL(udp_remote_ctx_t, udp_remote_ctx_free_internal)
 
 static void udp_remote_close_done_cb(uv_handle_t* handle) {
     struct udp_remote_ctx_t *ctx = (struct udp_remote_ctx_t *)handle->data;
-    udp_remote_ctx_release(ctx);
+    udp_remote_ctx_t_release(ctx);
 }
 
 static void udp_remote_shutdown(struct udp_remote_ctx_t *ctx) {
@@ -253,13 +245,13 @@ static void udp_remote_shutdown(struct udp_remote_ctx_t *ctx) {
         uv_timer_t *timer = &ctx->rmt_expire;
         uv_timer_stop(timer);
         uv_close((uv_handle_t *)timer, udp_remote_close_done_cb);
-        udp_remote_ctx_add_ref(ctx);
+        udp_remote_ctx_t_add_ref(ctx);
     }
     {
         uv_udp_t *udp = &ctx->rmt_udp;
         uv_udp_recv_stop(udp);
         uv_close((uv_handle_t *)udp, udp_remote_close_done_cb);
-        udp_remote_ctx_add_ref(ctx);
+        udp_remote_ctx_t_add_ref(ctx);
     }
 
     if (ctx->dying_cb) {
@@ -281,13 +273,13 @@ void udp_remote_set_dying_callback(struct udp_remote_ctx_t *ctx, udp_remote_dyin
 
 void udp_remote_destroy(struct udp_remote_ctx_t *ctx) {
     udp_remote_shutdown(ctx);
-    udp_remote_ctx_release(ctx);
+    udp_remote_ctx_t_release(ctx);
 }
 
 static void udp_remote_timeout_cb(uv_timer_t* handle) {
     struct udp_remote_ctx_t *remote_ctx = CONTAINER_OF(handle, struct udp_remote_ctx_t, rmt_expire);
 
-    pr_info("%s", "[udp] connection timeout, shutting down");
+    pr_info("%s", "[UDP] connection timeout, shutting down");
 
     udp_remote_shutdown(remote_ctx);
 }
@@ -332,7 +324,7 @@ void udp_remote_recv_cb(uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf0, c
 }
 
 struct udp_remote_ctx_t * udp_remote_launch_begin(uv_loop_t* loop, uint64_t timeout, const struct socks5_address *dst_addr) {
-    union sockaddr_universal u_dst_addr = { 0 };
+    union sockaddr_universal u_dst_addr = { {0} };
     uv_udp_t *udp = NULL;
     uv_timer_t *timer;
 
@@ -340,7 +332,7 @@ struct udp_remote_ctx_t * udp_remote_launch_begin(uv_loop_t* loop, uint64_t time
     remote_ctx = (struct udp_remote_ctx_t *) calloc(1, sizeof(*remote_ctx));
     remote_ctx->timeout = timeout;
     remote_ctx->dst_addr = *dst_addr;
-    udp_remote_ctx_add_ref(remote_ctx);
+    udp_remote_ctx_t_add_ref(remote_ctx);
 
     udp = &remote_ctx->rmt_udp;
 
@@ -372,7 +364,7 @@ void udp_remote_send_data(struct udp_remote_ctx_t *remote_ctx, const uint8_t*dat
     uv_buf_t sndbuf;
     uint8_t *dup_data;
     uv_udp_send_t *send_req;
-    union sockaddr_universal u_dst_addr = { 0 };
+    union sockaddr_universal u_dst_addr = { {0} };
 
     if (remote_ctx==NULL || data==NULL || len==0) {
         return;
@@ -420,15 +412,15 @@ static void udp_tls_listener_recv_cb(uv_udp_t* handle, ssize_t nread, const uv_b
         }
         (void)flags;
         if (nread < 0) {
-            pr_err("%s", "[udp] udp_tls_listener_recv_cb something wrong.");
+            pr_err("%s", "[UDP] udp_tls_listener_recv_cb something wrong.");
             break;
         } else if (nread > (ssize_t) packet_size) {
-            pr_err("%s", "[udp] udp_tls_listener_recv_cb fragmentation");
+            pr_err("%s", "[UDP] udp_tls_listener_recv_cb fragmentation");
             break;
         } else if (nread == 0) {
             if (addr == NULL) {
                 // there is nothing to read
-                pr_err("%s", "[udp] udp_tls_listener_recv_cb there is nothing to read");
+                pr_err("%s", "[UDP] udp_tls_listener_recv_cb there is nothing to read");
                 break;
             } else {
                 //  an empty UDP packet is received.
@@ -465,7 +457,7 @@ udprelay_begin(uv_loop_t *loop, const char *server_host, uint16_t server_port,
     // Bind to port
     serverfd = udp_create_local_listener(server_host, server_port, loop, &server_ctx->udp);
     if (serverfd < 0) {
-        FATAL("[udp] bind() error");
+        FATAL("[UDP] bind() error");
     }
 
     server_ctx->cipher_env = cipher_env;

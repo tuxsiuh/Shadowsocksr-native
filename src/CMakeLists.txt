@@ -1,8 +1,12 @@
 set(SSR_MAIN_DIR ${CMAKE_CURRENT_SOURCE_DIR} CACHE INTERNAL "SSR main directory" FORCE)
 
-option(ENABLE_DUMP_INFO "Out put the stage info." OFF)
+option(ENABLE_DUMP_INFO "Out put the stage info." ON)
 if (ENABLE_DUMP_INFO)
     add_definitions("-D__PRINT_INFO__")
+endif()
+
+if(ANDROID)
+include_directories(${LIB_ANCILLARY_DIR})
 endif()
 
 set(SOURCE_FILES_SNI
@@ -86,6 +90,8 @@ set(SOURCE_FILES_CLIENT
         dump_info.h
         cmd_line_parser.c
         cmd_line_parser.h
+        exe_file_path.c
+        exe_file_path.h
         daemon_wrapper.c
         daemon_wrapper.h
         ${SOURCE_FILES_OBFS}
@@ -127,6 +133,8 @@ set(SOURCE_FILES_SERVER
         ssr_executive.h
         cmd_line_parser.c
         cmd_line_parser.h
+        exe_file_path.c
+        exe_file_path.h
         daemon_wrapper.c
         daemon_wrapper.h
         config_json.c
@@ -197,6 +205,11 @@ endif()
 
 add_definitions(-DUDP_RELAY_ENABLE)
 
+if(ANDROID)
+    LIST(APPEND SOURCE_FILES_LOCAL android.c)
+    LIST(APPEND SOURCE_FILES_CLIENT android.c)
+endif()
+
 add_executable(ssr-client ${SOURCE_FILES_CLIENT})
 add_executable(ssr-local ${SOURCE_FILES_LOCAL})
 #add_executable(ss_tunnel ${SOURCE_FILES_TUNNEL})
@@ -231,6 +244,10 @@ if (WIN32)
     list ( APPEND ss_lib_net Ws2_32 )
 endif()
 
+if(ANDROID)
+    LIST(APPEND ss_lib_net ancillary log)
+    set_target_properties(ssr-client PROPERTIES PREFIX "lib" SUFFIX ".so")
+endif()
 
 target_link_libraries(ssr-client ${ss_lib_net} uv-mbed)
 
@@ -241,7 +258,7 @@ target_link_libraries(ssr-server ${ss_lib_net})
 #target_link_libraries(ss_manager ${ss_lib_common} )
 #target_link_libraries(ss_redir ${ss_lib_net})
 
-install(TARGETS ssr-server ssr-local ssr-client 
+install(TARGETS ssr-server ssr-local ssr-client
     RUNTIME DESTINATION /usr/bin)
 
 install(FILES ../config.json 

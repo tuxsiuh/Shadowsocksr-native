@@ -382,6 +382,9 @@ uint8_t * s5_address_package_create(const struct s5_ctx *parser, void*(*allocato
 
     assert(parser);
     assert(allocator);
+    if (parser==NULL || allocator==NULL) {
+        return NULL;
+    }
 
     buffer = (uint8_t *) allocator(0x100);
     memset(buffer, 0, 0x100);
@@ -475,7 +478,9 @@ const uint8_t * s5_parse_upd_package(const uint8_t *pkg, size_t len, struct sock
         }
         offset = sizeof(uint16_t) + sizeof(uint8_t);
         address = pkg + offset;
-        socks5_address_parse(address, len-offset, dst_addr);
+        if (socks5_address_parse(address, len - offset, dst_addr) == false) {
+            break;
+        }
 
         offset += socks5_address_size(dst_addr);
 
