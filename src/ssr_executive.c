@@ -40,6 +40,7 @@
 #include "obfs.h"
 #include "crc32.h"
 #include "cstl_lib.h"
+#include "strtrim.h"
 
 const char * ssr_strerror(enum ssr_error err) {
 #define SSR_ERR_GEN(_, name, errmsg) case (name): return errmsg;
@@ -71,12 +72,61 @@ struct server_config * config_create(void) {
     struct server_config *config;
 
     config = (struct server_config *) calloc(1, sizeof(*config));
-    string_safe_assign(&config->listen_host, DEFAULT_BIND_HOST);
+
+    string_safe_assign(&config->remarks, "Default");
+    string_safe_assign(&config->password, "password");
     string_safe_assign(&config->method, DEFAULT_METHOD);
-    config->listen_port = DEFAULT_BIND_PORT;
+    string_safe_assign(&config->protocol, "origin");
+    string_safe_assign(&config->protocol_param, "");
+    string_safe_assign(&config->obfs, "plain");
+    string_safe_assign(&config->obfs_param, "");
+    config->udp = true;
     config->idle_timeout = DEFAULT_IDLE_TIMEOUT;
     config->connect_timeout_ms = DEFAULT_CONNECT_TIMEOUT;
     config->udp_timeout = DEFAULT_UDP_TIMEOUT;
+
+    string_safe_assign(&config->remote_host, "");
+    config->remote_port = 443;
+    string_safe_assign(&config->listen_host, DEFAULT_BIND_HOST);
+    config->listen_port = DEFAULT_BIND_PORT;
+
+    config->over_tls_enable = false;
+    string_safe_assign(&config->over_tls_server_domain, "");
+    string_safe_assign(&config->over_tls_path, DEFAULT_SSROT_PATH);
+
+    return config;
+}
+
+struct server_config * config_clone(struct server_config* src) {
+    struct server_config *config = NULL;
+    if (src == NULL) {
+        return config;
+    }
+    config = (struct server_config *) calloc(1, sizeof(*config));
+    if (config == NULL) {
+        return config;
+    }
+
+    string_safe_assign(&config->remarks, src->remarks);
+    string_safe_assign(&config->password, src->password);
+    string_safe_assign(&config->method, src->method);
+    string_safe_assign(&config->protocol, src->protocol);
+    string_safe_assign(&config->protocol_param, src->protocol_param);
+    string_safe_assign(&config->obfs, src->obfs);
+    string_safe_assign(&config->obfs_param, src->obfs_param);
+    config->udp = src->udp;
+    config->idle_timeout = src->idle_timeout;
+    config->connect_timeout_ms = src->connect_timeout_ms;
+    config->udp_timeout = src->udp_timeout;
+
+    string_safe_assign(&config->remote_host, src->remote_host);
+    config->remote_port = src->remote_port;
+    string_safe_assign(&config->listen_host, src->listen_host);
+    config->listen_port = src->listen_port;
+
+    config->over_tls_enable = src->over_tls_enable;
+    string_safe_assign(&config->over_tls_server_domain, src->over_tls_server_domain);
+    string_safe_assign(&config->over_tls_path, src->over_tls_path);
 
     return config;
 }
@@ -143,6 +193,7 @@ void config_parse_protocol_param(struct server_config *config, const char *param
     iter = strchr(p0, '#');
     if (iter) {
         *iter = '\0'; iter++;
+        p0 = strtrim(p0, trim_type_both, NULL);
         max_cli = strtol(p0, NULL, 10);
         user_id = iter;
     }
@@ -157,6 +208,8 @@ void config_parse_protocol_param(struct server_config *config, const char *param
         auth_key = strchr(user_id, ':');
         if (auth_key) {
             *auth_key = '\0'; auth_key++;
+            user_id = strtrim(user_id, trim_type_both, NULL);
+            auth_key = strtrim(auth_key, trim_type_both, NULL);
             config_add_user_id_with_auth_key(config, user_id, auth_key);
         }
 
@@ -493,7 +546,7 @@ enum ssr_error tunnel_cipher_client_encrypt(struct tunnel_cipher_ctx *tc, struct
 
     obfs_plugin = tc->obfs;
     if (obfs_plugin && obfs_plugin->client_encode) {
-        struct buffer_t *tmp = obfs_plugin->client_encode(tc->obfs, buf);
+        struct buffer_t* tmp = obfs_plugin->client_encode(obfs_plugin, buf);
         buffer_replace(buf, tmp); buffer_release(tmp);
     }
     // SSR end
@@ -512,14 +565,14 @@ enum ssr_error tunnel_cipher_client_decrypt(struct tunnel_cipher_ctx *tc, struct
 
     if (obfs_plugin && obfs_plugin->client_decode) {
         bool needsendback = 0;
-        struct buffer_t *result = obfs_plugin->client_decode(tc->obfs, buf, &needsendback);
+        struct buffer_t* result = obfs_plugin->client_decode(obfs_plugin, buf, &needsendback);
         if (result == NULL) {
             return ssr_error_client_decode;
         }
         buffer_replace(buf, result); buffer_release(result);
         if (needsendback && obfs_plugin->client_encode) {
             struct buffer_t *empty = buffer_create_from((const uint8_t *)"", 0);
-            struct buffer_t *sendback = obfs_plugin->client_encode(tc->obfs, empty);
+            struct buffer_t* sendback = obfs_plugin->client_encode(obfs_plugin, empty);
             ASSERT(feedback);
             if (feedback) {
                 *feedback = sendback;
@@ -538,7 +591,7 @@ enum ssr_error tunnel_cipher_client_decrypt(struct tunnel_cipher_ctx *tc, struct
         size_t len0 = 0, capacity = 0;
         uint8_t *p = (uint8_t *) buffer_raw_clone(buf, &malloc, &len0, &capacity);
         ssize_t len = protocol_plugin->client_post_decrypt(
-            tc->protocol, (char **)&p, (int)len0, &capacity);
+            protocol_plugin, (char**)&p, (int)len0, &capacity);
         if (len >= 0) {
             buffer_store(buf, p, (size_t)len);
         }

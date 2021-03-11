@@ -39,7 +39,6 @@ struct server_config {
     char *remarks;
 };
 
-#if !defined(_LOCAL_H)
 struct server_env_t {
     void *data;
 
@@ -52,7 +51,6 @@ struct server_env_t {
     void *protocol_global;
     void *obfs_global;
 };
-#endif // _LOCAL_H
 
 struct tunnel_cipher_ctx {
     struct server_env_t *env; // __weak_ptr
@@ -90,13 +88,15 @@ void string_safe_assign(char **target, const char *value);
 #define DEFAULT_IDLE_TIMEOUT  (60 * MILLISECONDS_PER_SECOND)
 #define DEFAULT_CONNECT_TIMEOUT  (6 * MILLISECONDS_PER_SECOND)
 #define DEFAULT_UDP_TIMEOUT      (6 * MILLISECONDS_PER_SECOND)
-#define DEFAULT_METHOD        "rc4-md5"
+#define DEFAULT_METHOD        "aes-128-ctr"
+#define DEFAULT_SSROT_PATH    "/abcd1234/"
 
 #if !defined(TCP_BUF_SIZE_MAX)
 #define TCP_BUF_SIZE_MAX 32 * 1024
 #endif
 
 struct server_config * config_create(void);
+struct server_config * config_clone(struct server_config* src);
 void config_release(struct server_config *cf);
 void config_ssrot_revision(struct server_config* config);
 

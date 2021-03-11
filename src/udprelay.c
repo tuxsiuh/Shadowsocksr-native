@@ -20,6 +20,10 @@
  * <http://www.gnu.org/licenses/>.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
@@ -32,16 +36,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(_WIN32)
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
-#endif
-
-#ifdef HAVE_CONFIG_H
-#include "config.h"
 #endif
 
 #if defined(HAVE_SYS_IOCTL_H) && defined(HAVE_NET_IF_H) && defined(__linux__)
@@ -50,17 +50,12 @@
 #define SET_INTERFACE
 #endif
 
-#ifdef __MINGW32__
-#include "win32.h"
-#endif
-
 #include "ssrutils.h"
 #include "cache.h"
 #include "udprelay.h"
 #include "encrypt.h"
 #include "sockaddr_universal.h"
 #include "ssrbuffer.h"
-#include "jconf.h"
 
 #include "obfs/obfs.h"
 

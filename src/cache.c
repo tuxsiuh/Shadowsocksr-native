@@ -32,10 +32,6 @@
 #include "ssrutils.h"
 #include "uthash.h"
 
-#ifdef __MINGW32__
-#include "win32.h"
-#endif
-
 #if !defined(_WIN32)
 #include <sys/time.h>
 #endif
@@ -334,6 +330,7 @@ cache_insert(struct cache *cache, char *key, size_t key_len, void *data)
 }
 
 #if defined(_WIN32)
+#include <Windows.h>
 
 ev_tstamp
 _ev_time(void)

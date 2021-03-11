@@ -9,6 +9,7 @@
 #include "encrypt.h"
 #include "obfs.h"
 #include "ssrbuffer.h"
+#include "strtrim.h"
 #if defined(WIN32) || defined(_WIN32)
 #include <winsock2.h>
 #else
@@ -49,6 +50,7 @@ typedef struct _auth_simple_local_data {
 
 auth_simple_local_data * auth_simple_local_data_init(void) {
     auth_simple_local_data *local = (auth_simple_local_data *)calloc(1, sizeof(*local));
+    if (local == NULL) { return NULL; }
 
     local->has_sent_header = 0;
     local->recv_buffer = buffer_create(16384);
@@ -73,6 +75,7 @@ auth_simple_local_data * auth_simple_local_data_init(void) {
 
 static void * auth_simple_generate_global_init_data(void) {
     auth_simple_global_data *global = (auth_simple_global_data*)calloc(1, sizeof(auth_simple_global_data));
+    if (global == NULL) { return NULL; }
     rand_bytes(global->local_client_id, 8);
     rand_bytes((uint8_t*)&global->connection_id, 4);
     global->connection_id &= 0xFFFFFF;
@@ -81,7 +84,7 @@ static void * auth_simple_generate_global_init_data(void) {
 
 struct obfs_t * auth_simple_new_obfs(void) {
     struct obfs_t * obfs = (struct obfs_t*)calloc(1, sizeof(struct obfs_t));
-
+    if (obfs == NULL) { return NULL; }
     obfs->generate_global_init_data = auth_simple_generate_global_init_data;
     obfs->need_feedback = need_feedback_false;
     obfs->get_server_info = get_server_info;
@@ -98,6 +101,7 @@ struct obfs_t * auth_simple_new_obfs(void) {
 
 struct obfs_t * auth_sha1_new_obfs(void) {
     struct obfs_t *obfs = auth_simple_new_obfs();
+    if (obfs == NULL) { return NULL; }
 
     obfs->generate_global_init_data = auth_simple_generate_global_init_data;
     obfs->get_overhead = get_overhead;
@@ -154,6 +158,8 @@ struct obfs_t * auth_aes128_md5_new_obfs(void) {
     struct obfs_t *obfs = (struct obfs_t *)calloc(1, sizeof(struct obfs_t));
     auth_simple_local_data *l_data;
 
+    if (obfs == NULL) { return NULL; }
+
     obfs->generate_global_init_data = auth_simple_generate_global_init_data;
     obfs->get_overhead = auth_aes128_sha1_get_overhead;
     obfs->need_feedback = need_feedback_true;
@@ -207,6 +213,7 @@ static struct buffer_t * auth_aes128_not_match_return(struct obfs_t *obfs, struc
     if (local->salt && strlen(local->salt)) {
         struct buffer_t *ret;
         uint8_t *tmp = (uint8_t *) calloc(SSR_BUFF_SIZE+1, sizeof(uint8_t));
+        assert(tmp);
         memset(tmp, 'E', SSR_BUFF_SIZE);
         ret = buffer_create_from(tmp, SSR_BUFF_SIZE+1);
         free(tmp);
@@ -1013,11 +1020,13 @@ auth_aes128_sha1_pack_data(const uint8_t *data, size_t datalength, size_t fullda
     outdata[1] = (uint8_t)(out_size >> 8);
     key_len = (uint8_t)(local_key_len + 4);
     key = (uint8_t*)calloc(key_len, sizeof(uint8_t));
+    assert(key);
     memcpy(key, local_key, local_key_len);
     memintcopy_lt(key + key_len - 4, local->pack_id);
 
     {
         uint8_t * rnd_data = (uint8_t *) calloc(rand_len * sizeof(uint8_t), sizeof(uint8_t));
+        assert(rnd_data);
         rand_bytes(rnd_data, (int)rand_len);
         memcpy(outdata + 4, rnd_data, rand_len);
         free(rnd_data);
@@ -1106,22 +1115,25 @@ auth_aes128_sha1_pack_auth_data(auth_simple_global_data *global, struct server_i
         char encrypt_key_base64[256] = {0};
         if (buffer_get_length(local->user_key) == 0) {
             if(server->param != NULL && server->param[0] != 0) {
-                char *param = server->param;
-                char *delim = strchr(param, ':');
-                if(delim != NULL) {
+                char* param = strdup(server->param);
+                char* delim = NULL;
+                if (param && ((delim = strchr(param, ':')) != NULL)) {
                     uint8_t hash[SHA1_BYTES + 1] = { 0 };
                     long uid_long;
-                    char key_str[128];
-                    char uid_str[16] = { 0 };
-                    strncpy(uid_str, param, delim - param);
-                    strcpy(key_str, delim + 1);
+                    char* key_str = NULL;
+                    char* uid_str = param;
+                    delim[0] = 0;
+                    key_str = delim + 1;
+                    uid_str = strtrim(uid_str, trim_type_both, NULL);
                     uid_long = strtol(uid_str, NULL, 10);
                     memintcopy_lt(local->uid, (uint32_t)uid_long);
 
-                    local->hash(hash, (uint8_t *)key_str, (int)strlen(key_str));
+                    key_str = strtrim(key_str, trim_type_both, NULL);
+                    local->hash(hash, (uint8_t*)key_str, (int)strlen(key_str));
 
                     buffer_store(local->user_key, hash, local->hash_len);
                 }
+                free(param);
             }
             if (buffer_get_length(local->user_key) == 0) {
                 rand_bytes((uint8_t *)local->uid, 4);

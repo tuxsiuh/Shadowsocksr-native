@@ -36,7 +36,7 @@
 #include <string.h>
 #include <errno.h>
 #include <ctype.h>
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(_WIN32)
 #include <pwd.h>
 #include <grp.h>
 #endif
@@ -52,16 +52,6 @@ FILE *logfile;
 
 #ifdef HAS_SYSLOG
 int use_syslog = 0;
-#endif
-
-#ifndef __MINGW32__
-void
-SS_ERROR(const char *s)
-{
-    char *msg = strerror(errno);
-    LOGE("%s: %s", s, msg);
-}
-
 #endif
 
 int use_tty = 1;
@@ -105,7 +95,7 @@ ss_isnumeric(const char *s) {
 int
 run_as(const char *user)
 {
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(_WIN32)
     if (user[0]) {
         /* Convert user to a long integer if it is a non-negative number.
          * -1 means it is a user name. */
@@ -373,7 +363,7 @@ usage(const char *version, const char *encrypt_lib)
 void
 daemonize(const char *path)
 {
-#ifndef __MINGW32__
+#if !defined(__MINGW32__) && !defined(_WIN32)
     /* Our process ID and Session ID */
     pid_t pid, sid;
 
